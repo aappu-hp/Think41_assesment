@@ -69,7 +69,43 @@ def post_message(conv_id):
     msg = create_message(db.session, conv_id, sender, content)
     return jsonify(message_schema.dump(msg)), 201
 
-# ------------------- MAIN -------------------
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    data = request.get_json()
+    user_id = data.get('user_id')
+    message = data.get('message')
+    conv_id = data.get('conversation_id')
+
+    if not user_id or not message:
+        abort(400, 'user_id and message are required')
+
+    user = get_user(db.session, user_id)
+    if not user:
+        abort(404, 'User not found')
+
+    # Use existing conversation or create new one
+    if conv_id:
+        conv = get_conversation(db.session, conv_id)
+        if not conv:
+            abort(404, 'Conversation not found')
+    else:
+        conv = create_conversation(db.session, user_id)
+
+    # Save user message
+    user_msg = create_message(db.session, conv.id, 'user', message)
+
+    # Generate AI response (placeholder)
+    ai_response_text = f"Echo: {message}"  # Replace with real LLM call later
+    ai_msg = create_message(db.session, conv.id, 'bot', ai_response_text)
+
+    return jsonify({
+        'conversation_id': conv.id,
+        'messages': [
+            message_schema.dump(user_msg),
+            message_schema.dump(ai_msg)
+        ]
+    }), 200
+
 
 if __name__ == '__main__':
     with app.app_context():
