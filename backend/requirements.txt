@@ -1,1 +1,4 @@
 sqlalchemy
+Flask
+Flask-SQLAlchemy
+marshmallow
