@@ -1,129 +1,110 @@
-import csv
+# backend/app/load_data.py
+
+import os
+import pandas as pd
 from datetime import datetime
-from app.database import SessionLocal, engine
-from app.models import (
-    DistributionCenter, Product, InventoryItem,
-    User, Order, OrderItem
+from .database import SessionLocal, Base, engine
+from .models import (
+    DistributionCenter, Product,
+    InventoryItem, Order, OrderItem, User
 )
 
-# create tables
-from app.models import Base
+# 1) Create tables if not exist
 Base.metadata.create_all(bind=engine)
+session = SessionLocal()
 
-# helper to parse datetime
-
-def parse_dt(val):
+def parse_dt(x):
+    if pd.isna(x) or x == "":
+        return None
     try:
-        return datetime.fromisoformat(val) if val else None
-    except ValueError:
+        return datetime.fromisoformat(x)
+    except:
         return None
 
-# track existing emails to skip duplicates
+# track seen emails
 existing_emails = set()
 
-def load_csv(model, csv_path, transform_row=None):
-    session = SessionLocal()
-    with open(csv_path, newline='', encoding='utf-8', errors='ignore') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if transform_row:
-                row = transform_row(row)
-            # filter only valid model fields
-            filtered = {k: v for k, v in row.items() if k in model.__table__.columns.keys()}
-            # skip duplicate emails for User
-            if model is User:
-                email = filtered.get('email')
-                if not email or email in existing_emails:
-                    continue
-                existing_emails.add(email)
-            obj = model(**filtered)
-            session.add(obj)
-        try:
-            session.commit()
-        except Exception as e:
-            session.rollback()
-            print(f"Error loading {model.__tablename__}: {e}")
-    session.close()
+# 2) Configuration: model, CSV, converters, required, dedupe
+mappings = [
+    (
+        DistributionCenter, 'distribution_centers.csv',
+        {'id':int, 'name':str, 'latitude':float, 'longitude':float},
+        ['id','name'], False
+    ),
+    (
+        Product, 'products.csv',
+        {'id':int,'cost':float,'category':str,'name':str,'brand':str,
+         'retail_price':float,'department':str,'sku':str,
+         'distribution_center_id':int},
+        ['id','name'], False
+    ),
+    (
+        InventoryItem, 'inventory_items.csv',
+        {'id':int,'product_id':int,'created_at':parse_dt,'sold_at':parse_dt,
+         'cost':float,'product_category':str,'product_name':str,
+         'product_brand':str,'product_retail_price':float,
+         'product_department':str,'product_sku':str,
+         'product_distribution_center_id':int},
+        ['id','product_id'], False
+    ),
+    (
+        Order, 'orders.csv',
+        {'order_id':int,'user_id':int,'status':str,'gender':str,
+         'created_at':parse_dt,'returned_at':parse_dt,
+         'shipped_at':parse_dt,'delivered_at':parse_dt,
+         'num_of_item':int},
+        ['order_id','user_id'], False
+    ),
+    (
+        OrderItem, 'order_items.csv',
+        {'id':int,'order_id':int,'user_id':int,'product_id':int,
+         'inventory_item_id':int,'status':str,'created_at':parse_dt,
+         'shipped_at':parse_dt,'delivered_at':parse_dt,'returned_at':parse_dt},
+        ['id','order_id'], False
+    ),
+    (
+        User, 'users.csv',
+        {'id':int,'first_name':str,'last_name':str,'email':str,'age':int,
+         'gender':str,'state':str,'street_address':str,'postal_code':str,
+         'city':str,'country':str,'latitude':float,'longitude':float,
+         'traffic_source':str,'created_at':parse_dt},
+        ['id','email'], True       # <— dedupe on email for User
+    ),
+]
 
-if __name__ == '__main__':
-    data_dir = './data'
-    # distribution_centers
-    load_csv(
-        DistributionCenter,
-        f"{data_dir}/distribution_centers.csv",
-        lambda r: {
-            **r,
-            'latitude': float(r.get('latitude', 0)),
-            'longitude': float(r.get('longitude', 0))
-        }
-    )
-    # products
-    load_csv(
-        Product,
-        f"{data_dir}/products.csv",
-        lambda r: {
-            **r,
-            'cost': float(r.get('cost', 0)),
-            'retail_price': float(r.get('retail_price', 0)),
-            'distribution_center_id': int(r.get('distribution_center_id', 0))
-        }
-    )
-    # inventory_items
-    load_csv(
-        InventoryItem,
-        f"{data_dir}/inventory_items.csv",
-        lambda r: {
-            **r,
-            'product_id': int(r.get('product_id', 0)),
-            'created_at': parse_dt(r.get('created_at')),
-            'sold_at': parse_dt(r.get('sold_at')),
-            'cost': float(r.get('cost', 0)),
-            'product_retail_price': float(r.get('product_retail_price', 0)),
-            'product_distribution_center_id': int(r.get('product_distribution_center_id', 0))
-        }
-    )
-    # users (skip duplicates)
-    load_csv(
-        User,
-        f"{data_dir}/users.csv",
-        lambda r: {
-            **r,
-            'age': int(r.get('age', 0)),
-            'latitude': float(r.get('latitude', 0)),
-            'longitude': float(r.get('longitude', 0)),
-            'created_at': parse_dt(r.get('created_at'))
-        }
-    )
-    # orders
-    load_csv(
-        Order,
-        f"{data_dir}/orders.csv",
-        lambda r: {
-            'order_id': int(r.get('order_id', 0)),
-            'user_id': int(r.get('user_id', 0)),
-            'status': r.get('status'),
-            'gender': r.get('gender'),
-            'created_at': parse_dt(r.get('created_at')),
-            'returned_at': parse_dt(r.get('returned_at')),
-            'shipped_at': parse_dt(r.get('shipped_at')),
-            'delivered_at': parse_dt(r.get('delivered_at')),
-            'num_of_item': int(r.get('num_of_item', 0))
-        }
-    )
-    # order_items
-    load_csv(
-        OrderItem,
-        f"{data_dir}/order_items.csv",
-        lambda r: {
-            'order_id': int(r.get('order_id', 0)),
-            'user_id': int(r.get('user_id', 0)),
-            'product_id': int(r.get('product_id', 0)),
-            'inventory_item_id': int(r.get('inventory_item_id', 0)),
-            'status': r.get('status'),
-            'created_at': parse_dt(r.get('created_at')),
-            'shipped_at': parse_dt(r.get('shipped_at')),
-            'delivered_at': parse_dt(r.get('delivered_at')),
-            'returned_at': parse_dt(r.get('returned_at'))
-        }
-    )
-    print("Data loaded into SQLite database with duplicates skipped.")
+# 3) Process each CSV
+for Model, fname, conv, required, dedupe in mappings:
+    df = pd.read_csv(os.path.join('data', fname))
+    loaded = skipped = duped = 0
+
+    for _, row in df.iterrows():
+        # build kwargs
+        kwargs = {}
+        for col, fn in conv.items():
+            val = row.get(col, None)
+            if pd.isna(val):
+                val = None
+            kwargs[col] = fn(val) if val is not None else None
+
+        # skip if any required missing/blank
+        if any(kwargs.get(r) in (None, "", 0) for r in required):
+            skipped += 1
+            continue
+
+        # additional dedupe for users by email
+        if dedupe:
+            email = kwargs.get('email')
+            if email in existing_emails:
+                duped += 1
+                continue
+            existing_emails.add(email)
+
+        # upsert
+        session.merge(Model(**kwargs))
+        loaded += 1
+
+    session.commit()
+    print(f"{fname}: loaded {loaded}, skipped {skipped}" + (f", duped {duped}" if dedupe else ""))
+
+session.close()
+print("✅ Data load complete.")

@@ -1,73 +1,126 @@
-from flask import Flask, request, jsonify, abort
-from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+# backend/app/app.py
+
 import os
+import json
+from flask import Flask, request, jsonify, abort
+from flask_cors import CORS
 
-app = Flask(__name__)
-db_path = os.path.join(os.path.dirname(__file__), '../sql_app.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-db = SQLAlchemy(app)
-
-# Local imports
-from app.models import User, Conversation, Message
-from app.crud import (
-    create_user, get_user,
-    create_conversation, get_conversation,
-    create_message, get_conversation_messages
+from .database import SessionLocal, Base, engine
+from .models import (
+    DistributionCenter, Product, InventoryItem,
+    Order, OrderItem, User, Conversation, Message
 )
-from app.schemas import (
+from .schemas import (
+    DistributionCenterSchema, ProductSchema,
+    InventoryItemSchema, OrderSchema, OrderItemSchema,
     UserSchema, ConversationSchema, MessageSchema
 )
+from .crud import get_all, get_by_id, create
+from app.llm_chain import run_query  # Updated import
 
-# Schema instances
-user_schema         = UserSchema()
-conversation_schema = ConversationSchema()
-message_schema      = MessageSchema()
-messages_schema     = MessageSchema(many=True)
+app = Flask(__name__)
+CORS(app)
 
-# ------------------- ROUTES -------------------
+# Ensure tables exist
+Base.metadata.create_all(bind=engine)
 
-@app.route('/users', methods=['POST'])
-def post_user():
+# — Milestones 1–2: Data Endpoints —
+
+@app.route('/api/distribution_centers', methods=['GET'])
+def list_distribution_centers():
+    sess = SessionLocal()
+    items = get_all(sess, DistributionCenter)
+    data = DistributionCenterSchema(many=True).dump(items)
+    sess.close()
+    return jsonify(data), 200
+
+@app.route('/api/products', methods=['GET'])
+def list_products():
+    sess = SessionLocal()
+    items = get_all(sess, Product)
+    data = ProductSchema(many=True).dump(items)
+    sess.close()
+    return jsonify(data), 200
+
+@app.route('/api/inventory_items', methods=['GET'])
+def list_inventory_items():
+    sess = SessionLocal()
+    items = get_all(sess, InventoryItem)
+    data = InventoryItemSchema(many=True).dump(items)
+    sess.close()
+    return jsonify(data), 200
+
+@app.route('/api/orders', methods=['GET'])
+def list_orders():
+    sess = SessionLocal()
+    items = get_all(sess, Order)
+    data = OrderSchema(many=True).dump(items)
+    sess.close()
+    return jsonify(data), 200
+
+@app.route('/api/order_items', methods=['GET'])
+def list_order_items():
+    sess = SessionLocal()
+    items = get_all(sess, OrderItem)
+    data = OrderItemSchema(many=True).dump(items)
+    sess.close()
+    return jsonify(data), 200
+
+# — Milestone 3: Conversations & Messages —
+
+@app.route('/api/users', methods=['POST'])
+def create_user():
     data = request.get_json()
-    if not data or not data.get('email'):
-        abort(400, 'Email is required')
-    try:
-        user = create_user(db.session, data)
-        return jsonify(user_schema.dump(user)), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+    if not data or 'email' not in data:
+        abort(400, description="email is required")
+    sess = SessionLocal()
+    user = create(sess, User(**data))
+    sess.close()
+    return jsonify(UserSchema().dump(user)), 201
 
-@app.route('/conversations', methods=['POST'])
-def post_conversation():
+@app.route('/api/conversations', methods=['POST'])
+def create_conversation():
     data = request.get_json()
-    user_id = data.get('user_id')
-    if not user_id or not get_user(db.session, user_id):
-        abort(404, 'Valid user_id required')
-    conv = create_conversation(db.session, user_id)
-    return jsonify(conversation_schema.dump(conv)), 201
+    uid = data.get("user_id")
+    if not uid:
+        abort(400, description="user_id is required")
+    sess = SessionLocal()
+    if not get_by_id(sess, User, uid):
+        sess.close()
+        abort(404, description="User not found")
+    conv = create(sess, Conversation(user_id=uid))
+    sess.close()
+    return jsonify(ConversationSchema().dump(conv)), 201
 
-@app.route('/conversations/<int:conv_id>/messages', methods=['GET'])
-def get_messages(conv_id):
-    if not get_conversation(db.session, conv_id):
-        abort(404, 'Conversation not found')
-    msgs = get_conversation_messages(db.session, conv_id)
-    return jsonify(messages_schema.dump(msgs)), 200
+@app.route('/api/conversations/<int:cid>/messages', methods=['GET'])
+def get_conversation_messages(cid):
+    sess = SessionLocal()
+    conv = get_by_id(sess, Conversation, cid)
+    if not conv:
+        sess.close()
+        abort(404, description="Conversation not found")
+    msgs = conv.messages
+    data = MessageSchema(many=True).dump(msgs)
+    sess.close()
+    return jsonify(data), 200
 
-@app.route('/conversations/<int:conv_id>/messages', methods=['POST'])
-def post_message(conv_id):
+@app.route('/api/conversations/<int:cid>/messages', methods=['POST'])
+def post_message(cid):
     data = request.get_json()
-    sender  = data.get('sender')
-    content = data.get('content')
-    if sender not in ('user', 'bot') or not content:
-        abort(400, 'Invalid message data')
-    if not get_conversation(db.session, conv_id):
-        abort(404, 'Conversation not found')
-    msg = create_message(db.session, conv_id, sender, content)
-    return jsonify(message_schema.dump(msg)), 201
+    sess = SessionLocal()
+    conv = get_by_id(sess, Conversation, cid)
+    if not conv:
+        sess.close()
+        abort(404, description="Conversation not found")
+    msg = create(sess, Message(
+        conversation_id=cid,
+        sender=data.get("sender"),
+        content=data.get("content")
+    ))
+    sess.close()
+    return jsonify(MessageSchema().dump(msg)), 201
+
+# — Milestone 4 & 5: Core Chatbot Endpoint —
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
@@ -77,37 +130,67 @@ def chat():
     conv_id = data.get('conversation_id')
 
     if not user_id or not message:
-        abort(400, 'user_id and message are required')
+        abort(400, "user_id and message are required")
 
-    user = get_user(db.session, user_id)
-    if not user:
-        abort(404, 'User not found')
+    sess = SessionLocal()
+    try:
+        user = get_by_id(sess, User, user_id)
+        if not user:
+            abort(404, "User not found")
 
-    # Use existing conversation or create new one
-    if conv_id:
-        conv = get_conversation(db.session, conv_id)
-        if not conv:
-            abort(404, 'Conversation not found')
-    else:
-        conv = create_conversation(db.session, user_id)
+        # Reuse or create conversation
+        if conv_id:
+            conversation = get_by_id(sess, Conversation, conv_id)
+            if not conversation:
+                abort(404, "Conversation not found")
+        else:
+            conversation = create(sess, Conversation(user_id=user_id))
 
-    # Save user message
-    user_msg = create_message(db.session, conv.id, 'user', message)
+        # Capture conversation ID while session is open
+        conversation_id = conversation.id
+        
+        # Save user message
+        user_msg = create(sess, Message(
+            conversation_id=conversation_id,
+            sender="user",
+            content=message
+        ))
 
-    # Generate AI response (placeholder)
-    ai_response_text = f"Echo: {message}"  # Replace with real LLM call later
-    ai_msg = create_message(db.session, conv.id, 'bot', ai_response_text)
-
-    return jsonify({
-        'conversation_id': conv.id,
-        'messages': [
-            message_schema.dump(user_msg),
-            message_schema.dump(ai_msg)
-        ]
-    }), 200
-
+        # Get conversation history for context
+        history_messages = sess.query(Message).filter(
+            Message.conversation_id == conversation_id
+        ).order_by(Message.timestamp.asc()).all()
+        
+        # Format history for LLM context
+        history_str = "\n".join([
+            f"{msg.sender}: {msg.content}" for msg in history_messages
+        ])
+        
+        # Generate AI response with conversation context
+        ai_reply = run_query(f"Conversation history:\n{history_str}\n\nCurrent message: {message}")
+        
+        # Save AI response
+        bot_msg = create(sess, Message(
+            conversation_id=conversation_id,
+            sender="bot",
+            content=ai_reply
+        ))
+        
+        # Commit all changes
+        sess.commit()
+        
+        # Return response with conversation ID (using captured value)
+        return jsonify({
+            "conversation_id": conversation_id,
+            "user_message": message,
+            "ai_response": ai_reply
+        }), 200
+        
+    except Exception as e:
+        sess.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        sess.close()  # Ensure session is always closed
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     app.run(host='0.0.0.0', port=5000, debug=True)
