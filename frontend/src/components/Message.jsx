@@ -1,15 +1,21 @@
-// frontend/src/components/Message.jsx
+// src/components/Message.jsx
 import React from 'react';
 
-export default function Message({ sender, children }) {
+const Message = ({ sender, content }) => {
   const isUser = sender === 'user';
-  const style = {
-    maxWidth: '70%',
-    padding: '8px 12px',
-    borderRadius: '12px',
-    margin: '4px 0',
-    alignSelf: isUser ? 'flex-end' : 'flex-start',
-    backgroundColor: isUser ? '#DCF8C6' : '#EEE',
-  };
-  return <div style={style}>{children}</div>;
-}
+  return (
+    <div style={{
+      textAlign: isUser ? 'right' : 'left',
+      margin: '10px 0',
+      background: isUser ? '#dcf8c6' : '#f1f0f0',
+      padding: '10px',
+      borderRadius: '10px',
+      maxWidth: '80%',
+      alignSelf: isUser ? 'flex-end' : 'flex-start'
+    }}>
+      <strong>{isUser ? 'You' : 'AI'}:</strong> {content}
+    </div>
+  );
+};
+
+export default Message;

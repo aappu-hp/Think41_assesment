@@ -1,35 +1,28 @@
-// frontend/src/components/UserInput.jsx
-import React, { useState, useContext } from 'react';
-import { ChatContext } from '../context/ChatContext';
+// src/components/UserInput.jsx
+import React from 'react';
+import { useChat } from '../context/ChatContext';
 
-export default function UserInput({ onSend }) {
-  const [text, setText] = useState('');
-  const { userId, conversationId, setConversationId } = useContext(ChatContext);
+const UserInput = () => {
+  const { input, setInput, sendMessage } = useChat();
+  const userId = 1; // Static for now
 
-  const handleSend = () => {
-    if (!text.trim()) return;
-    onSend({ userId, conversationId, text }, setConversationId);
-    setText('');
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    sendMessage(userId);
   };
-
-  const handleKey = (e) => {
-    if (e.key === 'Enter') handleSend();
-  };
-
-  const containerStyle = { display: 'flex', marginTop: '8px' };
-  const inputStyle = { flex: 1, padding: '8px', fontSize: '1rem' };
-  const buttonStyle = { padding: '8px 16px', marginLeft: '8px' };
 
   return (
-    <div style={containerStyle}>
+    <form onSubmit={handleSubmit} style={{ display: 'flex' }}>
       <input
-        style={inputStyle}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={handleKey}
-        placeholder="Type your message…"
+        type="text"
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        placeholder="Ask a question..."
+        style={{ flex: 1, padding: '10px', fontSize: '16px' }}
       />
-      <button style={buttonStyle} onClick={handleSend}>Send</button>
-    </div>
+      <button type="submit" style={{ padding: '10px' }}>Send</button>
+    </form>
   );
-}
+};
+
+export default UserInput;
