@@ -2,6 +2,7 @@
 
 import os
 import json
+from venv import logger
 from flask import Flask, request, jsonify, abort
 from flask_cors import CORS
 
@@ -125,6 +126,10 @@ def post_message(cid):
 @app.route('/api/chat', methods=['POST'])
 def chat():
     data = request.get_json()
+    
+    # === Log the raw request for debugging ===
+    logger.info(f"Incoming /api/chat request JSON: {data!r}")
+    
     user_id = data.get('user_id')
     message = data.get('message')
     conv_id = data.get('conversation_id')
@@ -134,6 +139,7 @@ def chat():
 
     sess = SessionLocal()
     try:
+        # Validate user
         user = get_by_id(sess, User, user_id)
         if not user:
             abort(404, "User not found")
@@ -146,51 +152,58 @@ def chat():
         else:
             conversation = create(sess, Conversation(user_id=user_id))
 
-        # Capture conversation ID while session is open
         conversation_id = conversation.id
         
-        # Save user message
+        # Save the user's message
         user_msg = create(sess, Message(
             conversation_id=conversation_id,
             sender="user",
             content=message
         ))
 
-        # Get conversation history for context
-        history_messages = sess.query(Message).filter(
-            Message.conversation_id == conversation_id
-        ).order_by(Message.timestamp.asc()).all()
-        
-        # Format history for LLM context
-        history_str = "\n".join([
-            f"{msg.sender}: {msg.content}" for msg in history_messages
-        ])
-        
-        # Generate AI response with conversation context
-        ai_reply = run_query(f"Conversation history:\n{history_str}\n\nCurrent message: {message}")
-        
-        # Save AI response
+        # Build conversation history for context
+        history_messages = (
+            sess.query(Message)
+                .filter(Message.conversation_id == conversation_id)
+                .order_by(Message.timestamp.asc())
+                .all()
+        )
+        history_str = "\n".join(
+            f"{m.sender}: {m.content}" for m in history_messages
+        )
+
+        # Log the history and current message
+        logger.info(f"Conversation #{conversation_id} history:\n{history_str}")
+        logger.info(f"Generating AI reply for message: {message!r}")
+
+        # Generate AI response
+        ai_reply = run_query(
+            f"Conversation history:\n{history_str}\n\nCurrent message: {message}"
+        )
+        logger.info(f"AI replied: {ai_reply!r}")
+
+        # Save the bot's reply
         bot_msg = create(sess, Message(
             conversation_id=conversation_id,
             sender="bot",
             content=ai_reply
         ))
-        
-        # Commit all changes
+
         sess.commit()
-        
-        # Return response with conversation ID (using captured value)
+
         return jsonify({
             "conversation_id": conversation_id,
             "user_message": message,
             "ai_response": ai_reply
         }), 200
-        
+
     except Exception as e:
         sess.rollback()
+        logger.exception("Error in /api/chat")
         return jsonify({"error": str(e)}), 500
-    finally:
-        sess.close()  # Ensure session is always closed
 
+    finally:
+        sess.close()
+        
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

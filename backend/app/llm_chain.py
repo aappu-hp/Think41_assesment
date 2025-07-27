@@ -6,7 +6,8 @@ import logging
 from sqlalchemy import create_engine, text, inspect
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
-from langchain.chains import LLMChain
+from langchain_core.runnables import RunnablePassthrough, RunnableSequence
+from langchain_core.output_parsers import StrOutputParser
 import pandas as pd
 from dotenv import load_dotenv
 
@@ -23,7 +24,7 @@ DB_PATH = os.path.join(BASE_DIR, "../sql_app.db")
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
-# === ✅ Data Dictionary ===
+# === ✅ Data Dictionary with Detailed Schema ===
 DATA_DICTIONARY = """
 You are an intelligent assistant for an e-commerce platform. Answer user queries using the following EXACT table schemas:
 
@@ -50,14 +51,13 @@ Important Instructions:
 
 # === ✅ LLM Configuration ===
 llm = ChatGroq(
-    temperature=0.1,  # Slightly higher for better creativity
-    model_name="llama3-70b-8192",  # More powerful model
+    temperature=0.1,
+    model_name="llama3-70b-8192",
     api_key=os.environ["GROQ_API_KEY"]
 )
 
-# === ✅ SQL Generation Prompt ===
+# === ✅ Prompt Templates ===
 SQL_PROMPT = PromptTemplate(
-    input_variables=["question", "table_info"],
     template="""
 {data_dictionary}
 
@@ -72,12 +72,11 @@ Instructions:
 
 Question: {question}
 SQL Query:
-""".strip()
+""".strip(),
+    input_variables=["question", "table_info"]
 ).partial(data_dictionary=DATA_DICTIONARY)
 
-# === ✅ Response Generation Prompt ===
 RESPONSE_PROMPT = PromptTemplate(
-    input_variables=["question", "sql", "result"],
     template="""
 {data_dictionary}
 
@@ -92,22 +91,34 @@ SQL Used: {sql}
 Query Results: {result}
 
 Concise Response:
-""".strip()
+""".strip(),
+    input_variables=["question", "sql", "result"]
 ).partial(data_dictionary=DATA_DICTIONARY)
 
-# === ✅ Chains ===
-sql_chain = LLMChain(llm=llm, prompt=SQL_PROMPT, output_key="sql")
-response_chain = LLMChain(llm=llm, prompt=RESPONSE_PROMPT, output_key="response")
+# === ✅ Runnable Sequences ===
+# SQL generation sequence
+sql_sequence = RunnableSequence(
+    RunnablePassthrough.assign(table_info=lambda x: get_table_info()),
+    SQL_PROMPT,
+    llm,
+    StrOutputParser()
+)
+
+# Response generation sequence
+response_sequence = RunnableSequence(
+    RESPONSE_PROMPT,
+    llm,
+    StrOutputParser()
+)
 
 # === ✅ Helper Functions ===
 def get_table_info():
-    """Get schema information for all tables with detailed column info"""
+    """Get detailed schema information"""
     inspector = inspect(engine)
     table_info = []
     
     for table_name in inspector.get_table_names():
         columns = inspector.get_columns(table_name)
-        # Create detailed column info: name (type)
         column_info = ", ".join([f"{col['name']} ({col['type']})" for col in columns])
         table_info.append(f"Table: {table_name}\nColumns: {column_info}")
     
@@ -125,16 +136,23 @@ def clean_sql(sql: str) -> str:
     # Remove non-SQL text
     return re.sub(r'^[^SELECT]*(SELECT)', 'SELECT', sql, flags=re.IGNORECASE)
 
+def validate_sql(sql: str) -> bool:
+    """Validate SQL against known issues"""
+    # Check for invalid product_name reference
+    if "products.product_name" in sql.lower():
+        logger.error("Invalid column reference: products.product_name")
+        return False
+        
+    return True
+
 # === ✅ Core Query Function ===
 def run_query(question: str) -> str:
     """Generate precise, concise responses to user queries"""
     try:
         logger.info(f"Question: {question}")
-        table_info = get_table_info()
         
         # Step 1: Generate SQL
-        sql_result = sql_chain.invoke({"question": question, "table_info": table_info})
-        raw_sql = sql_result["sql"].strip()
+        raw_sql = sql_sequence.invoke({"question": question})
         logger.info(f"Raw SQL: {raw_sql}")
         
         # Handle clarification requests
@@ -144,6 +162,9 @@ def run_query(question: str) -> str:
         # Clean and validate SQL
         sql_query = clean_sql(raw_sql)
         logger.info(f"Clean SQL: {sql_query}")
+        
+        if not validate_sql(sql_query):
+            return "I need to clarify something about our data. Could you rephrase your question?"
         
         # Step 2: Execute SQL
         with engine.connect() as conn:
@@ -160,14 +181,14 @@ def run_query(question: str) -> str:
         logger.info(f"Results: {result_str[:100]}...")
         
         # Step 3: Generate concise response
-        response = response_chain.invoke({
+        response = response_sequence.invoke({
             "question": question,
             "sql": sql_query,
             "result": result_str
         })
         
         # Extract just the concise response
-        final_response = response["response"].split("Concise Response:")[-1].strip()
+        final_response = response.split("Concise Response:")[-1].strip()
         logger.info(f"Final Response: {final_response}")
         
         return final_response
