@@ -1,17 +1,13 @@
-// src/components/ChatWindow.jsx
 import React from 'react';
 import MessageList from './MessageList';
 import UserInput from './UserInput';
-import { useChat } from '../context/ChatContext';
+import '../styles/ChatWindow.css';
 
 const ChatWindow = () => {
-  const { loading } = useChat();
-
   return (
-    <div style={{ maxWidth: '600px', margin: '40px auto', border: '1px solid #ccc', borderRadius: '8px', padding: '1rem' }}>
-      <h2>E-commerce Assistant</h2>
+    <div className="chat-window">
+      <div className="chat-header">🛍️ AI Support Assistant</div>
       <MessageList />
-      {loading && <p>Loading...</p>}
       <UserInput />
     </div>
   );

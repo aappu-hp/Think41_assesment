@@ -153,7 +153,7 @@ def chat():
             conversation = create(sess, Conversation(user_id=user_id))
 
         conversation_id = conversation.id
-        
+        print("✅ Created or reused conversation:", conversation.id)
         # Save the user's message
         user_msg = create(sess, Message(
             conversation_id=conversation_id,
@@ -205,5 +205,51 @@ def chat():
     finally:
         sess.close()
         
+        
+@app.route('/api/conversations')
+def get_conversations():
+    user_id = request.args.get('user_id')
+    if not user_id:
+        return jsonify({'error': 'user_id required'}), 400
+
+    sess = SessionLocal()
+    try:
+        conversations = (
+            sess.query(Conversation)
+            .filter_by(user_id=user_id)
+            .order_by(Conversation.started_at.desc())
+            .all()
+        )
+        return jsonify([
+            {
+                "id": c.id,
+                "started_at": c.started_at.isoformat()  # ✅ fix: use started_at
+            }
+            for c in conversations
+        ])
+    finally:
+        sess.close()
+
+
+@app.route('/api/messages')
+def get_messages():
+    conversation_id = request.args.get('conversation_id')
+    if not conversation_id:
+        return jsonify({'error': 'conversation_id required'}), 400
+
+    sess = SessionLocal()
+    try:
+        messages = sess.query(Message).filter_by(conversation_id=conversation_id).order_by(Message.timestamp.asc()).all()
+        return jsonify([
+            {
+                "id": m.id,
+                "sender": m.sender,
+                "content": m.content,
+                "timestamp": m.timestamp.isoformat()
+            } for m in messages
+        ])
+    finally:
+        sess.close()
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

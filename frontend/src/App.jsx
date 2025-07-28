@@ -1,13 +1,14 @@
-// src/App.jsx
 import React from 'react';
 import ChatWindow from './components/ChatWindow';
-import { ChatProvider } from './context/ChatContext';
+import ConversationList from './components/ConversationList';
+import './styles/App.css';
 
 const App = () => {
   return (
-    <ChatProvider>
+    <div className="app-container">
+      <ConversationList />
       <ChatWindow />
-    </ChatProvider>
+    </div>
   );
 };
 

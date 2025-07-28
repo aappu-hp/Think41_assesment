@@ -1,0 +1,25 @@
+.conversation-list {
+  width: 260px;
+  background-color: #647A67;
+  color: white;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.conversation-title {
+  font-weight: bold;
+  margin-bottom: 1rem;
+}
+
+.conversation-item {
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  background-color: #7c9a84;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.conversation-item:hover {
+  background-color: #5d6e5f;
+}

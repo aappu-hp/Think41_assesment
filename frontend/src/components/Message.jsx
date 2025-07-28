@@ -1,19 +1,19 @@
-// src/components/Message.jsx
 import React from 'react';
+import '../styles/MessageList.css';
 
-const Message = ({ sender, content }) => {
-  const isUser = sender === 'user';
+const Message = ({ message }) => {
+  const isUser = message.sender === 'user';
+  const avatar = isUser ? '🧑‍💻' : '🤖';
+
   return (
-    <div style={{
-      textAlign: isUser ? 'right' : 'left',
-      margin: '10px 0',
-      background: isUser ? '#dcf8c6' : '#f1f0f0',
-      padding: '10px',
-      borderRadius: '10px',
-      maxWidth: '80%',
-      alignSelf: isUser ? 'flex-end' : 'flex-start'
-    }}>
-      <strong>{isUser ? 'You' : 'AI'}:</strong> {content}
+    <div className={`message-row ${isUser ? 'user' : 'bot'}`}>
+      <div className="message-avatar">{avatar}</div>
+      <div className="message-bubble">
+        <div className="message-content">{message.content}</div>
+        <div className="message-time">
+          🕐 {new Date(message.timestamp).toLocaleTimeString()}
+        </div>
+      </div>
     </div>
   );
 };

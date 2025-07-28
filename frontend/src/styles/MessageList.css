@@ -1,0 +1,42 @@
+.message-list {
+  flex: 1;
+  padding: 1rem;
+  overflow-y: auto;
+  background: #ffffff;
+}
+
+.message-row {
+  display: flex;
+  margin-bottom: 1rem;
+}
+
+.message-row.user {
+  justify-content: flex-end;
+}
+
+.message-row.bot {
+  justify-content: flex-start;
+}
+
+.message-avatar {
+  margin-right: 0.5rem;
+  font-size: 1.5rem;
+}
+
+.message-bubble {
+  background-color: #e0e0e0;
+  padding: 0.75rem;
+  border-radius: 12px;
+  max-width: 70%;
+  position: relative;
+}
+
+.message-row.user .message-bubble {
+  background-color: #cfe3d6;
+}
+
+.message-time {
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+  color: #666;
+}

@@ -1,16 +1,23 @@
-// src/components/MessageList.jsx
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useChat } from '../context/ChatContext';
 import Message from './Message';
+import '../styles/MessageList.css';
 
 const MessageList = () => {
-  const { messages } = useChat();
+  const { messages, loading } = useChat();
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   return (
-    <div style={{ minHeight: '200px', marginBottom: '1rem' }}>
-      {messages.map((msg, idx) => (
-        <Message key={idx} sender={msg.sender} content={msg.content} />
+    <div className="message-list">
+      {messages.map((msg) => (
+        <Message key={msg.id} message={msg} />
       ))}
+      {loading && <div className="loading">🤖 Thinking...</div>}
+      <div ref={bottomRef}></div>
     </div>
   );
 };
