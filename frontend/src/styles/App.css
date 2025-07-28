@@ -1,10 +1,7 @@
-body {
-  margin: 0;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-}
-
+/* src/styles/App.css */
 .app-container {
   display: flex;
   height: 100vh;
-  background-color: #f3f3f3;
+  margin: 0;
+  font-family: 'Segoe UI', sans-serif;
 }
